@@ -2,8 +2,8 @@ import os
 import logging
 from azure.communication.callautomation import (
     CallAutomationClient,
-    CallMediaRecognizeSpeechOptions,
-    TextSource
+    TextSource,
+    RecognizeInputType
 )
 from src.speech import SpeechConfig
 
@@ -22,25 +22,25 @@ class ACSCallHandler:
         if not self.client:
             return
 
-        call_connection = self.client.get_call_connection(call_connection_id)
-        
-        # Prepare TTS source
-        play_source = TextSource(
-            text=text,
-            voice_name=SpeechConfig.VOICE_NAME
-        )
-
-        # Prepare Recognition options (STT)
-        recognize_options = CallMediaRecognizeSpeechOptions(
-            target_participant=user_id,
-            speech_language=SpeechConfig.LOCALE,
-            play_prompt=play_source,
-            interrupt_prompt=True,
-            operation_context="incoming_utterance"
-        )
-
         try:
-            call_connection.start_recognizing(recognize_options)
+            call_connection = self.client.get_call_connection(call_connection_id)
+            
+            # Prepare TTS source
+            play_source = TextSource(
+                text=text,
+                voice_name=SpeechConfig.VOICE_NAME
+            )
+
+            # In Python SDK 1.5.0, start_recognizing uses keyword arguments
+            # instead of a separate RecognizeOptions object
+            call_connection.start_recognizing(
+                input_type=RecognizeInputType.SPEECH,
+                target_participant=user_id,
+                speech_language=SpeechConfig.LOCALE,
+                play_prompt=play_source,
+                interrupt_prompt=True,
+                operation_context="incoming_utterance"
+            )
             logger.info(f"Started play_and_recognize for call {call_connection_id}")
         except Exception as e:
             logger.error(f"Error in play_and_recognize: {e}")

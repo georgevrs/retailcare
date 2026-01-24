@@ -30,3 +30,7 @@ local.settings.json
 # OS
 .DS_Store
 Thumbs.db
+
+# local secrets
+local.settings.json
+.env

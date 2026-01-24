@@ -2,9 +2,6 @@ import azure.functions as func
 import json
 import logging
 import os
-from azure.communication.callautomation import (
-    CallAutomationEventParser
-)
 from src.state import session_store
 from src.agent import agent
 from src.acs import acs_handler
@@ -22,33 +19,42 @@ async def acs_events(req: func.HttpRequest) -> func.HttpResponse:
         events = req.get_json()
         for event in events:
             # EventGrid validation
-            if event["eventType"] == "Microsoft.EventGrid.SubscriptionValidationEvent":
+            if event.get("eventType") == "Microsoft.EventGrid.SubscriptionValidationEvent":
                 validation_code = event["data"]["validationCode"]
                 return func.HttpResponse(json.dumps({"validationResponse": validation_code}), status_code=200)
 
-            # Call Automation events
-            parser = CallAutomationEventParser()
-            decoded_event = parser.parse(json.dumps(event))
+            # Call Automation events (EventGrid format)
+            event_type = event.get("eventType", "")
+            data = event.get("data", {})
+            call_connection_id = data.get("callConnectionId")
             
-            call_connection_id = decoded_event.call_connection_id
-            
-            if decoded_event.__class__.__name__ == "CallConnected":
+            if not call_connection_id:
+                continue
+
+            if "CallConnected" in event_type:
                 logger.info(f"Call connected: {call_connection_id}")
                 session = session_store.get_or_create_session(call_connection_id)
+                # The participant ID is usually in the 'from' or 'to' field depending on the event
+                # For CallConnected, it's often in 'participantId' or we can get it from the session later
+                # We'll use a placeholder or try to find it in the data
+                user_id = data.get("participantId") or "unknown"
                 
                 greeting = "Καλησπέρα σας! Είμαι η ψηφιακή εξυπηρέτηση του καταστήματος RetailCare. Πώς μπορώ να σας βοηθήσω;"
-                await acs_handler.play_and_recognize(call_connection_id, greeting, decoded_event.user_id)
+                await acs_handler.play_and_recognize(call_connection_id, greeting, user_id)
                 
-            elif decoded_event.__class__.__name__ == "RecognizeCompleted":
+            elif "RecognizeCompleted" in event_type:
                 logger.info(f"Speech recognized for call: {call_connection_id}")
-                transcript = decoded_event.recognition_data.result.text
-                session = session_store.get_or_create_session(call_connection_id)
+                # Recognition data is in 'recognitionData'
+                recognition_data = data.get("recognitionData", {})
+                transcript = recognition_data.get("speechResult", {}).get("transcript", "")
                 
+                session = session_store.get_or_create_session(call_connection_id)
                 response = await agent.process_utterance(session, transcript)
                 
-                await acs_handler.play_and_recognize(call_connection_id, response.response_text, decoded_event.user_id)
+                user_id = data.get("participantId") or "unknown"
+                await acs_handler.play_and_recognize(call_connection_id, response.response_text, user_id)
 
-            elif decoded_event.__class__.__name__ == "CallDisconnected":
+            elif "CallDisconnected" in event_type:
                 logger.info(f"Call disconnected: {call_connection_id}")
                 session_store.delete_session(call_connection_id)
 

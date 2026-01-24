@@ -11,12 +11,21 @@ logger = logging.getLogger(__name__)
 
 class CallCenterAgent:
     def __init__(self):
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        key = os.getenv("AZURE_OPENAI_KEY")
+        deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        
+        if not endpoint or not key or not deployment:
+            logger.error(f"Missing Azure OpenAI configuration: endpoint={bool(endpoint)}, key={bool(key)}, deployment={bool(deployment)}")
+        else:
+            logger.info(f"Initializing Azure OpenAI with endpoint: {endpoint} and deployment: {deployment}")
+
         self.client = AsyncAzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_KEY"),
+            api_key=key,
             api_version="2024-02-15-preview",
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+            azure_endpoint=endpoint
         )
-        self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        self.deployment = deployment
 
     async def process_utterance(self, session: Any, user_input: str) -> AgentResponse:
         session.add_message("user", user_input)
@@ -26,20 +35,16 @@ class CallCenterAgent:
 
 ΣΚΟΠΟΣ:
 1. Κατανόηση αν ο χρήστης έχει παράπονο/πρόβλημα (COMPLAINT_TICKET) ή ζητά πληροφορίες (INFORMATION).
-2. Αν είναι παράπονο: Συλλέγεις απαραίτητα στοιχεία (τίτλο, περιγραφή, κατηγορία, επείγον) και καλείς το εργαλείο `create_ticket`. Ρωτάς μόνο ΕΝΑ πράγμα τη φορά.
-3. Αν είναι πληροφορία: Αναζητάς στο FAQ χρησιμοποιώντας το εργαλείο `search_faq`.
-4. Αν είναι χαιρετισμός: Απαντάς ευγενικά.
+2. Αν είναι παράπονο: Συλλέγεις απαραίτητα στοιχεία (τίτλο, περιγραφή, κατηγορία, επείγον) και καλείς το εργαλείο `create_ticket`.
+3. ΑΠΟΦΑΣΙΣΤΙΚΟΤΗΤΑ: Αν ο χρήστης αναφέρει σαφές πρόβλημα (π.χ. καθυστέρηση, σπασμένο προϊόν) και δώσει στοιχεία (π.χ. αριθμό παραγγελίας), κάλεσε το `create_ticket` ΑΜΕΣΩΣ. Μην ζητάς επιβεβαίωση για την κατηγορία αν είναι προφανής.
+4. Αν είναι πληροφορία: Αναζητάς στο FAQ χρησιμοποιώντας το εργαλείο `search_faq`.
+5. Αν είναι χαιρετισμός: Απαντάς ευγενικά.
 
 ΚΑΝΟΝΕΣ:
-- Μην ζητάς πολλές πληροφορίες μαζί.
+- Ρωτάς μόνο ΕΝΑ πράγμα τη φορά αν λείπουν στοιχεία.
 - Αν λείπει ο αριθμός παραγγελίας, πες ότι δεν πειράζει αλλά αν τον βρουν ας τον πουν.
 - Αν δεν βρεις απάντηση στο FAQ, πες ότι θα το προωθήσεις σε εκπρόσωπο.
 - Πάντα να επιβεβαιώνεις τον αριθμό εισιτηρίου (ticket ID) αν δημιουργηθεί.
-- Απόκριση σε JSON format αν δεν καλείς εργαλείο.
-
-Εργαλεία:
-- search_faq(query: str): Αναζήτηση στη βάση γνώσεων.
-- create_ticket(details: dict): Δημιουργία ticket στο σύστημα.
 """
 
         tools = [
@@ -126,12 +131,22 @@ class CallCenterAgent:
             text = message.content or ""
             session.add_message("assistant", text)
             
-            # Simple intent heuristic for demo
+            # Improved intent heuristic for demo
             intent = Intent.UNKNOWN
-            if "ticket" in text.lower() or "αίτημα" in text.lower():
+            lower_text = text.lower()
+            
+            # Keywords for complaints/tickets
+            complaint_keywords = ["ticket", "αίτημα", "καταγραφή", "πρόβλημα", "παράπονο", "εξέλιξη", "αρ. #"]
+            if any(k in lower_text for k in complaint_keywords):
                 intent = Intent.COMPLAINT_TICKET
-            elif "?" in text:
+            # Keywords for information
+            elif "?" in text or any(k in lower_text for k in ["πληροφορία", "ωράριο", "πολιτική", "διεύθυνση"]):
                 intent = Intent.INFORMATION
+            # Check last user message if AI is asking for more info on a complaint
+            elif len(session.conversation_history) >= 2:
+                last_user_msg = session.conversation_history[-2]["content"].lower()
+                if any(k in last_user_msg for k in ["πρόβλημα", "καθυστέρηση", "σπασμένο", "χρέωση"]):
+                    intent = Intent.COMPLAINT_TICKET
                 
             return AgentResponse(intent=intent, response_text=text)
 
