@@ -135,6 +135,11 @@ class CallCenterAgent:
             intent = Intent.UNKNOWN
             lower_text = text.lower()
             
+            # Clean the text for TTS (remove emojis, markdown stars, etc.)
+            import re
+            clean_text = re.sub(r'[^\w\s\.,!\?\-#]', '', text) # Keep basic punctuation
+            clean_text = clean_text.replace('*', '').replace('_', '').strip()
+            
             # Keywords for complaints/tickets
             complaint_keywords = ["ticket", "αίτημα", "καταγραφή", "πρόβλημα", "παράπονο", "εξέλιξη", "αρ. #"]
             if any(k in lower_text for k in complaint_keywords):
@@ -148,7 +153,7 @@ class CallCenterAgent:
                 if any(k in last_user_msg for k in ["πρόβλημα", "καθυστέρηση", "σπασμένο", "χρέωση"]):
                     intent = Intent.COMPLAINT_TICKET
                 
-            return AgentResponse(intent=intent, response_text=text)
+            return AgentResponse(intent=intent, response_text=clean_text)
 
         except Exception as e:
             logger.error(f"Error in agent processing: {e}")

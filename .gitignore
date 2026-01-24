@@ -23,7 +23,7 @@ local.settings.json
 *.secret
 
 # IDEs
-.vscode/
+
 .idea/
 .cursor/
 

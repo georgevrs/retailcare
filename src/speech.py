@@ -2,10 +2,10 @@ import os
 
 class SpeechConfig:
     # Locale for Greek
-    LOCALE = "el-GR"
+    LOCALE = os.getenv("STT_LOCALE", "el-GR")
     
     # Text-to-Speech Voice
-    VOICE_NAME = "el-GR-AthinaNeural"
+    VOICE_NAME = os.getenv("TTS_VOICE", "el-GR-AthinaNeural")
     
     @staticmethod
     def get_speech_key():
