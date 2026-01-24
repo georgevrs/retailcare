@@ -1,0 +1,1 @@
+This is a simple web application that allows you to create a new post.
