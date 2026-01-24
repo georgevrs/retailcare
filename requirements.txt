@@ -1,0 +1,8 @@
+azure-functions
+azure-communication-callautomation
+azure-ai-openai
+azure-cognitiveservices-speech
+pydantic
+httpx
+python-dotenv
+python-json-logger
