@@ -1,0 +1,27 @@
+{
+  "name": "Order Cancellation Flow",
+  "description": "Test cancellation with alternative offer",
+  "turns": [
+    {
+      "user": "Θέλω ακύρωση παραγγελίας",
+      "expected_intent": "ORDER_CANCEL",
+      "expected_action": "ask_question",
+      "expected_slots": {},
+      "expected_response_contains": ["αριθμός παραγγελίας"]
+    },
+    {
+      "user": "#77881",
+      "expected_intent": "ORDER_CANCEL",
+      "expected_action": "ask_question",
+      "expected_slots": {"order_id": "#77881"},
+      "expected_response_contains": ["λόγος"]
+    },
+    {
+      "user": "Άργησε",
+      "expected_intent": "ORDER_CANCEL",
+      "expected_action": "create_ticket",
+      "expected_slots": {"order_id": "#77881", "reason": "Άργησε"},
+      "expected_response_contains": ["αίτημα", "αριθμό"]
+    }
+  ]
+}

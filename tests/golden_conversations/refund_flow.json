@@ -1,0 +1,34 @@
+{
+  "name": "Refund Request Flow",
+  "description": "Test refund with policy check",
+  "turns": [
+    {
+      "user": "Θέλω επιστροφή χρημάτων",
+      "expected_intent": "REFUND_REQUEST",
+      "expected_action": "ask_question",
+      "expected_slots": {},
+      "expected_response_contains": ["αριθμός παραγγελίας", "απόδειξη"]
+    },
+    {
+      "user": "#99102",
+      "expected_intent": "REFUND_REQUEST",
+      "expected_action": "ask_question",
+      "expected_slots": {"order_id": "#99102"},
+      "expected_response_contains": ["λόγος επιστροφής"]
+    },
+    {
+      "user": "Ελαττωματικό",
+      "expected_intent": "REFUND_REQUEST",
+      "expected_action": "ask_question",
+      "expected_slots": {"order_id": "#99102", "reason": "Ελαττωματικό"},
+      "expected_response_contains": ["φωτογραφία", "αντικατάσταση", "επιστροφή"]
+    },
+    {
+      "user": "Επιστροφή χρημάτων",
+      "expected_intent": "REFUND_REQUEST",
+      "expected_action": "create_ticket",
+      "expected_slots": {"order_id": "#99102", "reason": "Ελαττωματικό", "preferred_resolution": "Επιστροφή χρημάτων"},
+      "expected_response_contains": ["αίτημα", "αριθμό"]
+    }
+  ]
+}

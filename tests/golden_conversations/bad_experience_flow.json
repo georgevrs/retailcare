@@ -1,0 +1,20 @@
+{
+  "name": "Bad Experience Flow",
+  "description": "Test bad experience with high severity escalation",
+  "turns": [
+    {
+      "user": "Είχα πολύ άσχημη εμπειρία, ήταν αγενείς",
+      "expected_intent": "BAD_EXPERIENCE",
+      "expected_action": "ask_question",
+      "expected_slots": {"summary": "Είχα πολύ άσχημη εμπειρία, ήταν αγενείς"},
+      "expected_response_contains": ["καλέσει", "άνθρωπος"]
+    },
+    {
+      "user": "Ναι",
+      "expected_intent": "BAD_EXPERIENCE",
+      "expected_action": "create_ticket",
+      "expected_slots": {"summary": "Είχα πολύ άσχημη εμπειρία, ήταν αγενείς", "severity": "high", "needs_human": true},
+      "expected_response_contains": ["αίτημα", "αριθμό", "priority:high"]
+    }
+  ]
+}

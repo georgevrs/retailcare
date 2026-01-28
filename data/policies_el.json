@@ -1,0 +1,39 @@
+{
+  "refund": {
+    "changed_mind": {
+      "eligible_days": 14,
+      "condition": "unopened",
+      "required_evidence": [],
+      "description_el": "Επιστροφή λόγω αλλαγής γνώμης: εντός 14 ημερών, προϊόν ανοιχτό"
+    },
+    "damaged": {
+      "eligible_days": 48,
+      "condition": "any",
+      "required_evidence": ["photo"],
+      "description_el": "Επιστροφή λόγω ελαττωματικού: εντός 48 ωρών, απαιτείται φωτογραφία"
+    },
+    "wrong_item": {
+      "eligible_days": 7,
+      "condition": "any",
+      "required_evidence": [],
+      "description_el": "Επιστροφή λόγω λάθους προϊόντος: εντός 7 ημερών"
+    },
+    "defective": {
+      "eligible_days": 30,
+      "condition": "any",
+      "required_evidence": ["photo", "description"],
+      "description_el": "Επιστροφή λόγω ελαττωματικού: εντός 30 ημερών, απαιτείται φωτογραφία και περιγραφή"
+    }
+  },
+  "cancellation": {
+    "before_shipment": {
+      "allowed": true,
+      "description_el": "Η ακύρωση επιτρέπεται πριν την αποστολή"
+    },
+    "after_shipment": {
+      "allowed": false,
+      "alternative": "return_after_delivery",
+      "description_el": "Μετά την αποστολή, μπορείτε να επιστρέψετε το προϊόν μετά την παράδοση"
+    }
+  }
+}

@@ -4,7 +4,7 @@ import os
 import logging
 import tempfile
 from typing import Dict, List, Any, Optional
-from src.models import Intent, TicketDetails
+from src.models import Intent, TicketDetails, FlowState
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,9 @@ class CallSession:
         self.ticket_id: Optional[str] = None
         self.ticket_url: Optional[str] = None
         self.greeting_triggered: bool = False
+        self.active_intent: Optional[Intent] = None
+        self.flow_state: Optional[FlowState] = None
+        self.last_agent_action: str = ""
 
     def add_message(self, role: str, content: str):
         self.conversation_history.append({"role": role, "content": content})
@@ -34,7 +37,10 @@ class CallSession:
             "collected_slots": self.collected_slots,
             "ticket_id": self.ticket_id,
             "ticket_url": self.ticket_url,
-            "greeting_triggered": self.greeting_triggered
+            "greeting_triggered": self.greeting_triggered,
+            "active_intent": self.active_intent.value if isinstance(self.active_intent, Intent) else (self.active_intent if self.active_intent else None),
+            "flow_state": self.flow_state.dict() if self.flow_state else None,
+            "last_agent_action": self.last_agent_action
         }
 
     @classmethod
@@ -47,6 +53,11 @@ class CallSession:
         session.ticket_id = data.get("ticket_id")
         session.ticket_url = data.get("ticket_url")
         session.greeting_triggered = data.get("greeting_triggered", False)
+        active_intent_val = data.get("active_intent")
+        session.active_intent = Intent(active_intent_val) if active_intent_val else None
+        flow_state_data = data.get("flow_state")
+        session.flow_state = FlowState(**flow_state_data) if flow_state_data else None
+        session.last_agent_action = data.get("last_agent_action", "")
         return session
 
 class SessionStore:

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class Intent(str, Enum):
@@ -8,6 +8,12 @@ class Intent(str, Enum):
     GREETING = "GREETING"
     GOODBYE = "GOODBYE"
     UNKNOWN = "UNKNOWN"
+    ORDER_CANCEL = "ORDER_CANCEL"
+    ORDER_CHANGE = "ORDER_CHANGE"
+    REFUND_REQUEST = "REFUND_REQUEST"
+    BAD_EXPERIENCE = "BAD_EXPERIENCE"
+    HUMAN_REQUEST = "HUMAN_REQUEST"
+    STORE_HOURS = "STORE_HOURS"
 
 class Urgency(str, Enum):
     LOW = "low"
@@ -30,14 +36,30 @@ class TicketDetails(BaseModel):
     order_id: Optional[str] = Field(None, description="The order ID if provided")
     product: Optional[str] = Field(None, description="The product name if mentioned")
     store: Optional[str] = Field(None, description="The store location if mentioned")
+    extra_labels: Optional[List[str]] = Field(None, description="Additional labels for the ticket")
 
 class FAQResult(BaseModel):
     question: str
     answer: str
     score: float
 
+class Slot(BaseModel):
+    name: str
+    value: Any
+    confidence: float = 1.0
+    required: bool = True
+
+class FlowState(BaseModel):
+    active_intent: Optional[Intent] = None
+    slots: Dict[str, Any] = Field(default_factory=dict)
+    missing_slots: List[str] = Field(default_factory=list)
+    next_question: Optional[str] = None
+    confirmation_summary: Optional[str] = None
+    last_action: str = ""  # "asked_question", "created_ticket", "answered_faq", "handoff_attempted"
+
 class AgentResponse(BaseModel):
     intent: Intent
     response_text: str
     tool_call: Optional[str] = None
     tool_args: Optional[dict] = None
+    flow_state: Optional[FlowState] = None

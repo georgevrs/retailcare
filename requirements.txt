@@ -8,3 +8,8 @@ httpx
 python-dotenv
 python-json-logger
 requests
+pytz
+python-dateutil
+pytest
+pytest-asyncio
+pytest-mock

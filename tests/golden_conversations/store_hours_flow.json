@@ -1,0 +1,20 @@
+{
+  "name": "Store Hours Flow",
+  "description": "Test store hours query",
+  "turns": [
+    {
+      "user": "Ποιο είναι το ωράριο του καταστήματος;",
+      "expected_intent": "STORE_HOURS",
+      "expected_action": "get_store_hours",
+      "expected_slots": {},
+      "expected_response_contains": ["ανοιχτά", "Δευτέρα", "Σάββατο"]
+    },
+    {
+      "user": "Τι ώρες είστε ανοιχτά το Σάββατο;",
+      "expected_intent": "STORE_HOURS",
+      "expected_action": "get_store_hours",
+      "expected_slots": {},
+      "expected_response_contains": ["Σάββατο", "10:00", "18:00"]
+    }
+  ]
+}

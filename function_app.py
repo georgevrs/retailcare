@@ -226,21 +226,53 @@ async def simulate_call(req: func.HttpRequest) -> func.HttpResponse:
         text = body.get("text")
         session_id = body.get("session_id", "simulated-call-123")
         phone = body.get("phone", "306912345678")
+        mode = body.get("mode", "live")  # "dry_run" or "live"
 
         if not text:
             return func.HttpResponse("Missing 'text' in body", status_code=400)
 
         session = session_store.get_or_create_session(session_id, phone_number=phone)
+        
+        # In dry_run mode, we might want to preview ticket without creating it
+        # For now, we'll still process normally but return more details
         response = await agent.process_utterance(session, text)
+        session_store.save_session(session)
+
+        # Build ticket preview if would create ticket
+        ticket_preview = None
+        if response.flow_state and response.flow_state.last_action == "created_ticket":
+            if mode == "dry_run" and session.flow_state:
+                ticket_preview = {
+                    "would_create": True,
+                    "category": session.flow_state.slots.get("category", "unknown"),
+                    "urgency": session.flow_state.slots.get("urgency", "medium"),
+                    "order_id": session.flow_state.slots.get("order_id"),
+                    "summary": session.flow_state.confirmation_summary
+                }
+            else:
+                ticket_preview = {
+                    "created": True,
+                    "ticket_id": session.ticket_id,
+                    "ticket_url": session.ticket_url
+                }
 
         result = {
             "session_id": session_id,
             "user_input": text,
-            "agent_intent": response.intent,
+            "agent_intent": response.intent.value if response.intent else "UNKNOWN",
             "agent_response": response.response_text,
             "ticket_id": session.ticket_id,
             "ticket_url": session.ticket_url,
-            "history_length": len(session.conversation_history)
+            "history_length": len(session.conversation_history),
+            "slots": session.flow_state.slots if session.flow_state else {},
+            "next_question": session.flow_state.next_question if session.flow_state else None,
+            "ticket_preview": ticket_preview,
+            "flow_state": {
+                "active_intent": session.flow_state.active_intent.value if session.flow_state and session.flow_state.active_intent else None,
+                "missing_slots": session.flow_state.missing_slots if session.flow_state else [],
+                "last_action": session.flow_state.last_action if session.flow_state else "",
+                "confirmation_summary": session.flow_state.confirmation_summary if session.flow_state else None
+            } if session.flow_state else None
         }
 
         return func.HttpResponse(json.dumps(result, ensure_ascii=False), mimetype="application/json", status_code=200)
@@ -251,3 +283,46 @@ async def simulate_call(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="health", methods=["GET"])
 async def health_check(req: func.HttpRequest) -> func.HttpResponse:
     return func.HttpResponse("Healthy", status_code=200)
+
+@app.route(route="automation/run", methods=["POST"])
+async def automation_run(req: func.HttpRequest) -> func.HttpResponse:
+    """Execute automated remediation for a GitHub issue (protected by API key)"""
+    try:
+        # Check API key (simple protection)
+        api_key = req.headers.get("X-API-Key") or req.headers.get("Authorization", "").replace("Bearer ", "")
+        expected_key = os.getenv("AUTOMATION_API_KEY", "")
+        
+        if expected_key and api_key != expected_key:
+            logger.warning("Unauthorized automation request")
+            return func.HttpResponse("Unauthorized", status_code=401)
+        
+        body = req.get_json()
+        issue_number = body.get("issue_number")
+        dry_run = body.get("dry_run", True)  # Default to dry-run for safety
+        
+        if not issue_number:
+            return func.HttpResponse("Missing 'issue_number' in body", status_code=400)
+        
+        # Fetch issue from GitHub
+        from src.github_issues import github_client
+        from src.remediation_worker import remediation_worker
+        
+        # In a real implementation, you would fetch the issue from GitHub API
+        # For now, we'll accept issue data in the request body
+        issue_data = body.get("issue_data", {
+            "number": issue_number,
+            "labels": body.get("labels", []),
+            "body": body.get("body", "")
+        })
+        
+        # Process for automation
+        result = await remediation_worker.process_ticket_for_automation(issue_data, dry_run=dry_run)
+        
+        return func.HttpResponse(
+            json.dumps(result, ensure_ascii=False, default=str),
+            mimetype="application/json",
+            status_code=200
+        )
+    except Exception as e:
+        logger.error(f"Error in automation run: {e}", exc_info=True)
+        return func.HttpResponse(str(e), status_code=500)

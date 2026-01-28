@@ -1,0 +1,20 @@
+{
+  "name": "Human Request Flow",
+  "description": "Test human handoff with callback",
+  "turns": [
+    {
+      "user": "Θέλω να μιλήσω με άνθρωπο",
+      "expected_intent": "HUMAN_REQUEST",
+      "expected_action": "ask_question",
+      "expected_slots": {},
+      "expected_response_contains": ["καλέσουμε", "τηλέφωνο"]
+    },
+    {
+      "user": "306912345678, πρωί",
+      "expected_intent": "HUMAN_REQUEST",
+      "expected_action": "handoff",
+      "expected_slots": {"callback_number": "306912345678", "preferred_time": "πρωί"},
+      "expected_response_contains": ["καλέσουμε", "αίτημα"]
+    }
+  ]
+}
