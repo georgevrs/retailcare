@@ -82,7 +82,13 @@ GITHUB_TOKEN="your_pat"
 ## Deployment to Azure
 
 1. **Deploy Function App**: Use VS Code Azure Functions extension or Azure CLI.
-2. **Configure ACS Webhook**:
+2. **Required app setting (Python v2)**  
+   In Azure Portal → Function App → **Configuration** → **Application settings**, add:
+   - **Name**: `AzureWebJobsFeatureFlags`
+   - **Value**: `EnableWorkerIndexing`  
+
+   Without this, the host reports "0 functions found" and your HTTP triggers will not load. Save and restart the app after adding it.
+3. **Configure ACS Webhook**:
    - Go to your ACS resource in Azure Portal.
    - Navigate to **Events**.
    - Create an **Event Subscription**.

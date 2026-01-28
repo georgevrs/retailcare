@@ -457,19 +457,19 @@ class CallCenterAgent:
         elif action == "search_faq":
             query = action_result.get("query", "")
             faq_results = faq_kb.search(query)
-            if faq_results:
-                answer = faq_results[0].answer
-                final_response = await self._generate_final_answer(session, f"FAQ found: {answer}")
+                    if faq_results:
+                        answer = faq_results[0].answer
+                        final_response = await self._generate_final_answer(session, f"FAQ found: {answer}")
                 return AgentResponse(
                     intent=Intent.INFORMATION,
                     response_text=final_response,
                     flow_state=session.flow_state
                 )
-            else:
+                    else:
                 response_text = "Λυπάμαι, δεν βρήκα συγκεκριμένη πληροφορία για αυτό. Θα το σημειώσω για να σας καλέσει ένας εκπρόσωπος."
                 session.add_message("assistant", response_text)
-                return AgentResponse(
-                    intent=Intent.INFORMATION,
+                        return AgentResponse(
+                            intent=Intent.INFORMATION, 
                     response_text=response_text,
                     flow_state=session.flow_state
                 )
@@ -535,9 +535,9 @@ class CallCenterAgent:
                 requested_resolution=requested_resolution
             )
             
-            if result:
-                session.ticket_id = result["number"]
-                session.ticket_url = result["url"]
+                    if result:
+                        session.ticket_id = result["number"]
+                        session.ticket_url = result["url"]
                 
                 # Generate detailed confirmation message
                 confirmation_msg = self._generate_confirmation_message(
@@ -552,10 +552,10 @@ class CallCenterAgent:
                     response_text=confirmation_msg,
                     flow_state=session.flow_state
                 )
-            else:
+                    else:
                 error_msg = "Υπήρξε ένα πρόβλημα κατά την καταχώρηση του αιτήματος. Παρακαλώ περιμένετε να σας συνδέσω με έναν εκπρόσωπο."
                 session.add_message("assistant", error_msg)
-                return AgentResponse(
+                        return AgentResponse(
                     intent=ticket_intent,
                     response_text=error_msg,
                     flow_state=session.flow_state

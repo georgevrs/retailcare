@@ -10,6 +10,7 @@ python-json-logger
 requests
 pytz
 python-dateutil
+azure-data-tables
 pytest
 pytest-asyncio
 pytest-mock

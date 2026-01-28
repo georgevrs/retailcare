@@ -2,13 +2,28 @@ import azure.functions as func
 import json
 import logging
 import os
+import asyncio
+
 from src.state import session_store
 from src.agent import agent
 from src.acs import acs_handler
+from src.call_state import call_state
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# DIAGNOSTIC: Log critical environment variables at startup
+logger.info("=" * 80)
+logger.info("FUNCTION APP STARTUP - ENVIRONMENT CHECK")
+logger.info("=" * 80)
+logger.info(f"FUNCTIONS_WORKER_RUNTIME = {os.getenv('FUNCTIONS_WORKER_RUNTIME', '<NOT SET>')}")
+logger.info(f"AzureWebJobsFeatureFlags = {os.getenv('AzureWebJobsFeatureFlags', '<NOT SET>')}")
+logger.info(f"FUNCTIONS_EXTENSION_VERSION = {os.getenv('FUNCTIONS_EXTENSION_VERSION', '<NOT SET>')}")
+logger.info(f"PYTHON_VERSION = {os.getenv('PYTHON_VERSION', '<NOT SET>')}")
+logger.info(f"WEBSITE_SITE_NAME = {os.getenv('WEBSITE_SITE_NAME', '<NOT SET>')}")
+logger.info(f"AzureWebJobsStorage = {'<SET>' if os.getenv('AzureWebJobsStorage') else '<NOT SET>'}")
+logger.info("=" * 80)
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
@@ -47,10 +62,8 @@ async def acs_events(req: func.HttpRequest) -> func.HttpResponse:
                 logger.info(f"--- INCOMING CALL DETECTED ---")
                 logger.info(f"From: {caller_id}")
                 
-                # Pre-create session to store the phone number
-                # We don't have the callConnectionId yet, but we can use the context as a temporary key
-                # or just wait for CallConnected to get the ID and link it then.
-                # Actually, ACS IncomingCall event doesn't give us the CallConnectionId yet.
+                # Pre-create session to store the phone number if needed.
+                # We do NOT start media here; CallConnected/ParticipantsUpdated will trigger greeting safely.
                 # It's generated when we answer.
                 
                 # IMPORTANT: Automatically derive callback URL if not set or pointing to Azure while running locally
@@ -77,7 +90,7 @@ async def acs_events(req: func.HttpRequest) -> func.HttpResponse:
                 if result:
                     conn_id = result.call_connection_id
                     logger.info(f"✅ Answer request sent. Connection ID: {conn_id}")
-                    # Initialize session with phone number
+                    # Initialize session with phone number; greeting will be started on CallConnected/ParticipantsUpdated
                     session = session_store.get_or_create_session(conn_id, phone_number=caller_id)
                     logger.info(f"📝 Session created for {conn_id} with phone: {caller_id}")
                 else:
@@ -118,40 +131,41 @@ async def acs_callback(req: func.HttpRequest) -> func.HttpResponse:
                 logger.info(f"--- CALL CONNECTED --- ID: {call_connection_id}")
                 session = session_store.get_or_create_session(call_connection_id)
                 
-                # Check if we already triggered the greeting (prevent double-fire)
+                # Avoid double-greeting if we've already done it on this call
                 if session.greeting_triggered:
-                    logger.info("Greeting already triggered for this call. Skipping.")
+                    logger.info("Greeting already triggered for this call (CallConnected). Skipping.")
                     return func.HttpResponse(status_code=200)
 
-                # Robustly find the PHONE NUMBER participant (not the bot)
-                user_id = session.phone_number # From session storage
-                
-                # If still unknown, look at the participants list for the phone number
-                if user_id == "unknown":
+                # Try to get the phone participant from session or event participants
+                user_id = session.phone_number
+                if not user_id or user_id == "unknown":
                     participants = data.get("participants", [])
                     for p in participants:
-                        pid = p.get("identifier", {}).get("rawId")
+                        pid = (p.get("identifier") or {}).get("rawId")
                         # Only select phone number participants (4:+...)
-                        if pid and pid.startswith("4:"):
+                        if isinstance(pid, str) and pid.startswith("4:"):
                             user_id = pid
                             break
-                
-                if user_id == "unknown" or not user_id.startswith("4:"):
+
+                if not user_id or not isinstance(user_id, str) or not user_id.startswith("4:"):
                     logger.warning("Phone number participant not found at CallConnected. Will wait for ParticipantsUpdated.")
                     return func.HttpResponse(status_code=200)
 
+                # Persist phone rawId in both session_store and durable call_state
+                session.phone_number = user_id
+                session.greeting_triggered = True
+                session_store.save_session(session)
+                call_state.put_phone(call_connection_id, user_id)
+
                 greeting = "Καλησπέρα σας! Είμαι η ψηφιακή εξυπηρέτηση του καταστήματος RetailCare. Πώς μπορώ να σας βοηθήσω;"
                 logger.info(f"🎤 STARTING MEDIA LOOP. Target participant: {user_id}")
-                
-                session.greeting_triggered = True
-                session_store.save_session(session) # PERSIST!
-                
                 await acs_handler.play_and_recognize(call_connection_id, greeting, user_id)
                 
             elif "ParticipantsUpdated" in event_type:
                 logger.info(f"--- PARTICIPANTS UPDATED --- ID: {call_connection_id}")
                 session = session_store.get_or_create_session(call_connection_id)
                 
+                # If we've already greeted, nothing to do here
                 if session.greeting_triggered:
                     return func.HttpResponse(status_code=200)
 
@@ -159,8 +173,8 @@ async def acs_callback(req: func.HttpRequest) -> func.HttpResponse:
                 user_id = "unknown"
                 # Find the phone number participant (4:+...)
                 for p in participants:
-                    pid = p.get("identifier", {}).get("rawId")
-                    if pid and pid.startswith("4:"):
+                    pid = (p.get("identifier") or {}).get("rawId")
+                    if isinstance(pid, str) and pid.startswith("4:"):
                         user_id = pid
                         break
                 
@@ -169,6 +183,7 @@ async def acs_callback(req: func.HttpRequest) -> func.HttpResponse:
                     session.phone_number = user_id
                     session.greeting_triggered = True
                     session_store.save_session(session)
+                    call_state.put_phone(call_connection_id, user_id)
                     
                     greeting = "Καλησπέρα σας! Είμαι η ψηφιακή εξυπηρέτηση του καταστήματος RetailCare. Πώς μπορώ να σας βοηθήσω;"
                     await acs_handler.play_and_recognize(call_connection_id, greeting, user_id)
@@ -177,38 +192,107 @@ async def acs_callback(req: func.HttpRequest) -> func.HttpResponse:
                 logger.info(f"--- SPEECH RECOGNIZED --- ID: {call_connection_id}")
                 session = session_store.get_or_create_session(call_connection_id)
                 
-                recognition_data = data.get("recognitionData", {})
-                transcript = (
-                    recognition_data.get("speechResult", {}).get("transcript") or 
-                    recognition_data.get("result", {}).get("text") or 
-                    data.get("recognitionData", {}).get("transcript") or
-                    data.get("transcript") or
-                    ""
-                )
+                # CRITICAL FIX: The SDK returns "speechResult.speech", NOT "transcript"
+                speech_result = data.get("speechResult", {})
+                transcript = speech_result.get("speech", "").strip()
                 
-                logger.info(f"User transcript: '{transcript}'")
+                # Log raw data for debugging
+                logger.info(f"Raw speechResult: {speech_result}")
+                logger.info(f"Extracted transcript: '{transcript}'")
                 
-                if not transcript.strip():
+                if not transcript:
+                    logger.warning("Empty transcript received, skipping agent processing")
                     return func.HttpResponse(status_code=200)
 
                 response = await agent.process_utterance(session, transcript)
-                session_store.save_session(session) # PERSIST HISTORY!
+                session_store.save_session(session)
                 
+                # Determine the correct participant to respond to.
                 user_id = data.get("participantId") or session.phone_number
-                logger.info(f"AI response: '{response.response_text}'")
+                if not user_id or user_id == "unknown":
+                    # Fallback 1: durable call state (Table Storage)
+                    fallback_phone = call_state.get_phone(call_connection_id)
+                    if fallback_phone:
+                        user_id = fallback_phone
+                        session.phone_number = fallback_phone
+                        session_store.save_session(session)
+                        logger.info(f"Recovered user_id from CallStateStore for {call_connection_id}: {user_id}")
+
+                if not user_id or user_id == "unknown":
+                    # Fallback 2 (NUCLEAR): ask ACS directly for current participants
+                    try:
+                        recovered = await acs_handler.get_phone_raw_id(call_connection_id)
+                    except Exception as e:
+                        logger.error(
+                            f"Error while calling get_phone_raw_id for {call_connection_id}: {e}",
+                            exc_info=True,
+                        )
+                        recovered = None
+
+                    if recovered:
+                        user_id = recovered
+                        session.phone_number = recovered
+                        session_store.save_session(session)
+                        call_state.put_phone(call_connection_id, recovered)
+                        logger.info(f"Recovered user_id from ACS participants for {call_connection_id}: {user_id}")
+
+                if not user_id or user_id == "unknown":
+                    logger.error(
+                        f"Unable to determine caller identity for {call_connection_id} "
+                        f"even after ACS lookup; skipping TTS response."
+                    )
+                    return func.HttpResponse(status_code=200)
+
+                logger.info(f"AI response: '{response.response_text}' to user {user_id}")
                 await acs_handler.play_and_recognize(call_connection_id, response.response_text, user_id)
 
             elif "RecognizeFailed" in event_type:
                 logger.warning(f"--- RECOGNITION FAILED --- ID: {call_connection_id}")
-                # Try to restart recognition if it was just a timeout
+                result_info = data.get("resultInformation", {})
+                error_code = result_info.get("subCode")
+                error_msg = result_info.get("message", "Unknown error")
+                logger.error(f"Recognition failure: code={error_code}, message={error_msg}")
+
+                # Track number of consecutive failures to avoid infinite retry loops
                 session = session_store.get_or_create_session(call_connection_id)
-                user_id = data.get("participantId") or session.phone_number
+                failures = session.collected_slots.get("_recognize_failures", 0) + 1
+                session.collected_slots["_recognize_failures"] = failures
+                session_store.save_session(session)
+
+                # If we've failed too many times, apologize and hang up gracefully
+                if failures > 2:
+                    logger.warning(
+                        f"Max recognition retries reached for {call_connection_id} "
+                        f"(failures={failures}). Sending apology and ending call."
+                    )
+                    goodbye_msg = (
+                        "Αντιμετωπίζω τεχνικό πρόβλημα με την αναγνώριση της φωνής σας. "
+                        "Θα τερματίσω την κλήση και, αν χρειαστεί, μπορείτε να δοκιμάσετε ξανά αργότερα."
+                    )
+                    await acs_handler.play_and_recognize(call_connection_id, goodbye_msg)
+                    await acs_handler.hang_up(call_connection_id)
+                    return func.HttpResponse(status_code=200)
+
+                # Otherwise, politely ask the caller to repeat
                 retry_msg = "Με συγχωρείτε, δεν σας άκουσα καλά. Μπορείτε να επαναλάβετε;"
-                await acs_handler.play_and_recognize(call_connection_id, retry_msg, user_id)
+                logger.info(
+                    f"Retrying recognition for {call_connection_id} "
+                    f"(failure count: {failures})"
+                )
+                await acs_handler.play_and_recognize(call_connection_id, retry_msg)
 
             elif "CallDisconnected" in event_type:
                 logger.info(f"--- CALL DISCONNECTED --- ID: {call_connection_id}")
                 session_store.delete_session(call_connection_id)
+                call_state.delete(call_connection_id)
+            
+            elif "PlayCompleted" in event_type:
+                logger.info(f"✅ PlayCompleted event received for {call_connection_id}")
+                logger.info(f"TTS playback finished. Recognition should now be actively listening.")
+            
+            elif "PlayFailed" in event_type:
+                logger.error(f"❌ PlayFailed event received for {call_connection_id}")
+                logger.error(f"Result info: {data.get('resultInformation')}")
             
             else:
                 logger.info(f"Other callback event: {event_type}")
@@ -217,6 +301,57 @@ async def acs_callback(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         logger.error(f"Error in acs/callback: {str(e)}", exc_info=True)
         return func.HttpResponse(status_code=500)
+
+@app.route(route="dev/diagnostics", methods=["GET"])
+async def diagnostics(req: func.HttpRequest) -> func.HttpResponse:
+    """Log all environment variables for debugging Azure configuration."""
+    logger.info("=" * 80)
+    logger.info("DIAGNOSTICS ENDPOINT CALLED - LOGGING ALL ENVIRONMENT VARIABLES")
+    logger.info("=" * 80)
+    
+    critical_vars = [
+        "FUNCTIONS_WORKER_RUNTIME",
+        "AzureWebJobsFeatureFlags",
+        "AzureWebJobsStorage",
+        "FUNCTIONS_EXTENSION_VERSION",
+        "WEBSITE_SITE_NAME",
+        "PYTHON_VERSION",
+    ]
+    
+    env_dump = {}
+    for key, value in os.environ.items():
+        # Mask sensitive values but show they exist
+        if any(secret in key.upper() for secret in ["KEY", "SECRET", "PASSWORD", "TOKEN", "CONNECTION"]):
+            if value:
+                env_dump[key] = f"<SET: {len(value)} chars>"
+            else:
+                env_dump[key] = "<EMPTY>"
+        else:
+            env_dump[key] = value
+    
+    # Log critical vars prominently
+    logger.info("CRITICAL CONFIGURATION:")
+    for var in critical_vars:
+        val = os.environ.get(var, "<NOT SET>")
+        logger.info(f"  {var} = {val}")
+    
+    # Log all vars
+    logger.info("\nALL ENVIRONMENT VARIABLES:")
+    for key in sorted(env_dump.keys()):
+        logger.info(f"  {key} = {env_dump[key]}")
+    
+    logger.info("=" * 80)
+    
+    return func.HttpResponse(
+        json.dumps({
+            "critical": {var: os.environ.get(var, "<NOT SET>") for var in critical_vars},
+            "all_vars": env_dump,
+            "function_app_loaded": True,
+            "app_instance_id": id(app)
+        }, indent=2),
+        mimetype="application/json",
+        status_code=200
+    )
 
 @app.route(route="dev/simulate", methods=["POST"])
 async def simulate_call(req: func.HttpRequest) -> func.HttpResponse:
